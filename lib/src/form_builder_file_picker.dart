@@ -27,8 +27,7 @@ class TypeSelector {
 }
 
 /// Field for image(s) from user device storage
-class FormBuilderFilePicker
-    extends FormBuilderFieldDecoration<List<PlatformFile>> {
+class FormBuilderFilePicker extends FormBuilderField<List<PlatformFile>> {
   /// Maximum number of files needed for this field
   final int? maxFiles;
 
@@ -39,13 +38,13 @@ class FormBuilderFilePicker
   /// icon will be displayed depending on file type
   final bool previewImages;
 
-  /// Create a list of type of document that you can pick
-  ///
-  /// Useful if you want to be able to pick documents and images in the same form field and
-  /// need to define different file types and different selectors.
-  ///
-  /// By default use `[TypeSelector(type: FileType.any, selector: Icon(Icons.add_circle))]`
-  final List<TypeSelector> typeSelectors;
+  /// Widget to be tapped on by user in order to pick files
+  final Widget selector;
+
+  final List<TypeSelector>? typeSelectors;
+
+  /// Default types of files to be picked. Default set to [FileType.any]
+  final FileType type;
 
   /// Allowed file extensions for files to be selected
   final List<String>? allowedExtensions;
@@ -71,41 +70,56 @@ class FormBuilderFilePicker
   /// to support user interactions with the picked files.
   final FileViewerBuilder? customFileViewerBuilder;
 
-  /// Allow to customise the view of the pickers.
-  final Widget Function(List<Widget> types)? customTypeViewerBuilder;
-
   /// Creates field for image(s) from user device storage
-  FormBuilderFilePicker(
-      {
-      //From Super
-      super.key,
-      required super.name,
-      super.validator,
-      super.initialValue,
-      super.decoration,
-      super.onChanged,
-      super.valueTransformer,
-      super.enabled,
-      super.onSaved,
-      super.autovalidateMode = AutovalidateMode.disabled,
-      super.onReset,
-      super.focusNode,
-      this.maxFiles,
-      this.withData = kIsWeb,
-      this.withReadStream = false,
-      this.allowMultiple = false,
-      this.previewImages = true,
-      this.typeSelectors = const [
-        TypeSelector(type: FileType.any, selector: Icon(Icons.add_circle))
-      ],
-      this.allowedExtensions,
-      this.onFileLoading,
-      this.allowCompression = true,
-      this.customFileViewerBuilder,
-      this.customTypeViewerBuilder})
-      : super(
+  FormBuilderFilePicker({
+    //From Super
+    Key? key,
+    required String name,
+    FormFieldValidator<List<PlatformFile>>? validator,
+    List<PlatformFile> initialValue = const [],
+    InputDecoration decoration = const InputDecoration(),
+    ValueChanged<List<PlatformFile>?>? onChanged,
+    ValueTransformer<List<PlatformFile>?>? valueTransformer,
+    bool enabled = true,
+    FormFieldSetter<List<PlatformFile>>? onSaved,
+    AutovalidateMode autovalidateMode = AutovalidateMode.disabled,
+    VoidCallback? onReset,
+    FocusNode? focusNode,
+    this.maxFiles,
+    this.withData = kIsWeb,
+    this.withReadStream = false,
+    this.allowMultiple = false,
+    this.previewImages = true,
+    @Deprecated("please use typeSelectors for better picker and file type control")
+        this.selector = const Icon(Icons.add_circle),
+    @Deprecated("please use typeSelectors for better picker and file type control")
+        this.type = FileType.any,
+    // TODO: once the above fields are removed typeSelectors should be made not null and initialized as
+    // const [TypeSelector(type: FileType.any, selector: Icon(Icons.add_circle))]
+    // the typeSelectorList variable can be then removed and we can use typeSelectors directly
+    this.typeSelectors,
+    this.allowedExtensions,
+    this.onFileLoading,
+    this.allowCompression = true,
+    this.customFileViewerBuilder,
+  }) : super(
+          key: key,
+          initialValue: initialValue,
+          name: name,
+          validator: validator,
+          valueTransformer: valueTransformer,
+          onChanged: onChanged,
+          autovalidateMode: autovalidateMode,
+          onSaved: onSaved,
+          enabled: enabled,
+          onReset: onReset,
+          decoration: decoration,
+          focusNode: focusNode,
           builder: (FormFieldState<List<PlatformFile>?> field) {
             final state = field as _FormBuilderFilePickerState;
+
+            List<TypeSelector> typeSelectorList =
+                typeSelectors ?? [TypeSelector(type: type, selector: selector)];
 
             return InputDecorator(
               decoration: state.decoration.copyWith(
@@ -114,14 +128,21 @@ class FormBuilderFilePicker
                       : null),
               child: Column(
                 children: <Widget>[
-                  customTypeViewerBuilder != null
-                      ? customTypeViewerBuilder(
-                          state.getTypeSelectorActions(typeSelectors, field))
-                      : Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: state.getTypeSelectorActions(
-                              typeSelectors, field),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: <Widget>[
+                      ...typeSelectorList.map(
+                        (typeSelector) => InkWell(
+                          onTap: state.enabled &&
+                                  (null == state._remainingItemCount ||
+                                      state._remainingItemCount! > 0)
+                              ? () => state.pickFiles(field, typeSelector.type)
+                              : null,
+                          child: typeSelector.selector,
                         ),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 3),
                   customFileViewerBuilder != null
                       ? customFileViewerBuilder.call(state._files,
@@ -135,12 +156,12 @@ class FormBuilderFilePicker
         );
 
   @override
-  FormBuilderFieldDecorationState<FormBuilderFilePicker, List<PlatformFile>>
+  FormBuilderFieldState<FormBuilderFilePicker, List<PlatformFile>>
       createState() => _FormBuilderFilePickerState();
 }
 
-class _FormBuilderFilePickerState extends FormBuilderFieldDecorationState<
-    FormBuilderFilePicker, List<PlatformFile>> {
+class _FormBuilderFilePickerState
+    extends FormBuilderFieldState<FormBuilderFilePicker, List<PlatformFile>> {
   /// Image File Extensions.
   ///
   /// Note that images may be previewed.
@@ -168,7 +189,7 @@ class _FormBuilderFilePickerState extends FormBuilderFieldDecorationState<
   @override
   void initState() {
     super.initState();
-    _files = initialValue ?? [];
+    _files = widget.initialValue ?? [];
   }
 
   Future<void> pickFiles(
@@ -222,6 +243,7 @@ class _FormBuilderFilePickerState extends FormBuilderFieldDecorationState<
         final itemSize =
             (constraints.biggest.width - (count * spacing)) / count;
         return Wrap(
+          // scrollDirection: Axis.horizontal,
           alignment: WrapAlignment.start,
           runAlignment: WrapAlignment.start,
           runSpacing: 10,
@@ -241,7 +263,7 @@ class _FormBuilderFilePickerState extends FormBuilderFieldDecorationState<
                       child: (imageFileExts.contains(
                                   files[index].extension!.toLowerCase()) &&
                               widget.previewImages)
-                          ? widget.withData
+                          ? kIsWeb
                               ? Image.memory(files[index].bytes!,
                                   fit: BoxFit.cover)
                               : Image.file(File(files[index].path!),
@@ -262,7 +284,7 @@ class _FormBuilderFilePickerState extends FormBuilderFieldDecorationState<
                       color: Colors.white.withOpacity(.8),
                       child: Text(
                         files[index].name,
-                        style: theme.textTheme.bodySmall,
+                        style: theme.textTheme.caption,
                         maxLines: 2,
                         overflow: TextOverflow.clip,
                       ),
@@ -303,21 +325,6 @@ class _FormBuilderFilePickerState extends FormBuilderFieldDecorationState<
     );
   }
 
-  List<Widget> getTypeSelectorActions(List<TypeSelector> typeSelectors,
-      FormFieldState<List<PlatformFile>?> field) {
-    return <Widget>[
-      ...typeSelectors.map(
-        (typeSelector) => InkWell(
-          onTap: enabled &&
-                  (null == _remainingItemCount || _remainingItemCount! > 0)
-              ? () => pickFiles(field, typeSelector.type)
-              : null,
-          child: typeSelector.selector,
-        ),
-      ),
-    ];
-  }
-
   IconData getIconData(String fileExtension) {
     final lowerCaseFileExt = fileExtension.toLowerCase();
     if (imageFileExts.contains(lowerCaseFileExt)) return Icons.image;
@@ -339,11 +346,5 @@ class _FormBuilderFilePickerState extends FormBuilderFieldDecorationState<
       default:
         return Icons.insert_drive_file;
     }
-  }
-
-  @override
-  void reset() {
-    super.reset();
-    setState(() => _files = widget.initialValue ?? []);
   }
 }
